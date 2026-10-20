@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AEGIS // Level 1",
+  title: "AEGIS // Command Center",
   description: "Human-controlled crisis command center for evidence-grounded response plans.",
 };
 

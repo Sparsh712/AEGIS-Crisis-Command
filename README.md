@@ -8,7 +8,7 @@ AEGIS is not an operational emergency system. It never sends real alerts and nev
 
 ## What is here
 
-- `frontend/` — Next.js 15 App Router, TypeScript, static export, dark operations-room UI with replay selection, incident queue, evidence drawer, bilingual comms, and approval controls.
+- `frontend/` — Next.js 15 App Router, TypeScript, static export, dark operations-room UI with replay selection, offline MapLibre vector layers, incident queue, evidence drawer, bilingual comms, and approval controls.
 - `frontend/lib/sse.ts` — connects to `GET /api/stream` and provides an offline deterministic fallback.
 - `backend/app/` — FastAPI contracts, SQLite store, pub/sub bus, replay engine, offline tools, five agents, resource ledger, Auditor, orchestration, and SSE API.
 - `backend/fixtures/` — Nepal 2015 and labelled synthetic compound-disaster scenarios; Replay mode never needs the network.
@@ -90,7 +90,7 @@ The repository contains no machine-specific absolute paths or committed secrets.
 
 - Live mode is an explicit offline-safe placeholder and does not contact USGS, GDACS, Open-Meteo, or Overpass.
 - Facility and population data are recorded fixture data, not a current operational map.
-- Map rendering is a deterministic operations canvas; MapLibre layers and deployment are later hardening work.
+- The map uses an offline vector style; external basemap tiles and deployment are later hardening work.
 - Hindi drafts are machine-generated and always flagged for human language review.
 - AEGIS never sends real alerts or dispatches resources.
 

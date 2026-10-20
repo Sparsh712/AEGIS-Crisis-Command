@@ -24,6 +24,6 @@ Scope for this pass: **offline vertical slice through replay, audit, and human a
 - [x] Level 3 deterministic agent outputs and fallbacks.
 - [x] Level 4 resource ledger, Auditor checks, and bounded revision loop.
 - [x] Level 5 replay engine and compound synthetic scenario.
-- [ ] Level 6 MapLibre command-center layers.
+- [x] Level 6 offline MapLibre event, facility, and route layers.
 - [ ] Level 7 live polling and deployment hardening.
 - [ ] Level 8 hosted deployment, screenshots, and demo video.
