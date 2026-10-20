@@ -104,6 +104,12 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .overview-strip strong { overflow: hidden; color: var(--text); font-family: var(--mono); font-size: 10px; font-weight: 400; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .accent-text { color: var(--accent) !important; }
 .canvas-grid { position: relative; min-height: 455px; overflow: hidden; background: #0d1210; }
+.map-frame { position: relative; min-height: 455px; overflow: hidden; background: #0d1210; }
+.map-root { min-height: 455px; width: 100%; }
+.map-root .maplibregl-canvas { outline: none; }
+.map-overlay { position: absolute; z-index: 2; color: var(--faint); font-family: var(--mono); font-size: 8px; letter-spacing: .1em; pointer-events: none; }
+.map-overlay-top { top: 16px; left: 18px; }.map-overlay-bottom { right: 18px; bottom: 16px; }
+.map-legend { position: absolute; z-index: 2; right: 18px; bottom: 38px; display: grid; gap: 8px; color: var(--muted); font-family: var(--mono); font-size: 8px; letter-spacing: .08em; pointer-events: none; }
 .canvas-grid::before, .canvas-grid::after { position: absolute; content: ""; pointer-events: none; }
 .canvas-grid::before { inset: 0; background: linear-gradient(120deg, transparent 49.8%, rgba(139,191,140,.08) 50%, transparent 50.2%), linear-gradient(30deg, transparent 49.8%, rgba(139,191,140,.05) 50%, transparent 50.2%); background-size: 220px 180px; }
 .canvas-grid::after { inset: 22px; border: 1px solid rgba(139,191,140,.08); }

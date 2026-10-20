@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { decidePlan, getState, injectSample, setMode, stopReplay } from "@/lib/api";
+import MapView from "@/components/MapView";
 import { connectToTrace } from "@/lib/sse";
 import type {
   AegisState,
@@ -394,22 +395,7 @@ export default function Home() {
                 <div><span>PRIORITY</span><strong className="accent-text">P{selectedIncident.priority}</strong></div>
                 <div><span>PLAN</span><strong>{selectedPlan?.status.replaceAll("_", " ").toUpperCase() ?? "NOT GENERATED"}</strong></div>
               </div>
-              <div className="canvas-grid">
-                <div className="coordinate coordinate-top-left">{selectedEvent ? `${selectedEvent.lat.toFixed(4)}° N / ${selectedEvent.lon.toFixed(4)}° E` : "COORDINATES PENDING"}</div>
-                <div className="coordinate coordinate-bottom-right">EVIDENCE-GROUNDED / HUMAN GATE</div>
-                <div className="crosshair crosshair-main" aria-hidden="true"><span /><span /></div>
-                <div className="incident-orbit" aria-hidden="true"><span className="orbit-ring orbit-ring-large" /><span className="orbit-ring orbit-ring-small" /><span className="orbit-core" /></div>
-                <div className="canvas-label">
-                  <span className="label-kicker">EVENT / {selectedEvent?.source.toUpperCase() ?? "UNKNOWN"}</span>
-                  <strong>{selectedEvent?.magnitude ? `M${selectedEvent.magnitude}` : "—"}</strong>
-                  <span>{hazardLabel(selectedIncident.hazard)}</span>
-                </div>
-                <div className="route route-one" /><div className="route route-two" />
-                {safeData.facilities.slice(0, 2).map((facility, index) => (
-                  <div className={`facility facility-${index + 1}`} key={facility.id}>{facility.type.toUpperCase()} / {String(index + 1).padStart(2, "0")}</div>
-                ))}
-                <div className="canvas-legend"><span><i className="legend-dot legend-event" /> EVENT</span><span><i className="legend-dot legend-facility" /> FACILITY</span><span><i className="legend-line" /> ROUTE</span></div>
-              </div>
+               <div className="map-frame"><MapView events={safeData.events} incidents={safeData.incidents} facilities={safeData.facilities} selectedEvent={selectedEvent} selectedPlan={selectedPlan} /><div className="map-overlay map-overlay-top">{selectedEvent ? `${selectedEvent.lat.toFixed(4)}° N / ${selectedEvent.lon.toFixed(4)}° E` : "COORDINATES PENDING"}</div><div className="map-overlay map-overlay-bottom">OFFLINE VECTOR / EVIDENCE-GROUNDED / HUMAN GATE</div><div className="map-legend"><span><i className="legend-dot legend-event" /> EVENT</span><span><i className="legend-dot legend-facility" /> FACILITY</span><span><i className="legend-line" /> ROUTE</span></div></div>
               <div className="rationale-block"><span className="field-label">TRIAGE RATIONALE</span><p>{selectedIncident.rationale}</p></div>
             </>
           ) : (
