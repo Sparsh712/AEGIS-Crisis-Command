@@ -16,5 +16,12 @@ backend/.cache/
 .pytest_cache/
 .mypy_cache/
 
+# Local buildathon notes and recording material; keep out of future commits.
+/docs/
+/TEST.MD
+/test.mc
+/aegis_build_spec.md
+/aegis_step_by_step_build.md
+
 .DS_Store
 Thumbs.db

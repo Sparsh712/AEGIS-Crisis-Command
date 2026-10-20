@@ -478,19 +478,17 @@ export default function Home() {
 
           {loading ? (
             <div className="canvas-loading"><span className="loading-orbit" /><p>Hydrating command state…</p></div>
-          ) : selectedIncident ? (
+          ) : (
             <>
-              <div className="overview-strip">
+              {selectedIncident && <div className="overview-strip">
                 <div><span>INCIDENT</span><strong>{selectedIncident.id}</strong></div>
                 <div><span>HAZARD</span><strong>{hazardLabel(selectedIncident.hazard)}</strong></div>
                 <div><span>PRIORITY</span><strong className="accent-text">P{selectedIncident.priority}</strong></div>
                 <div><span>PLAN</span><strong>{selectedPlan?.status.replaceAll("_", " ").toUpperCase() ?? "NOT GENERATED"}</strong></div>
-              </div>
+              </div>}
                <div className="map-frame"><MapView events={safeData.events} incidents={safeData.incidents} facilities={safeData.facilities} selectedEvent={selectedEvent} selectedPlan={selectedPlan} /><div className="map-overlay map-overlay-top">{selectedEvent ? `${selectedEvent.lat.toFixed(4)}° N / ${selectedEvent.lon.toFixed(4)}° E` : "COORDINATES PENDING"}</div><div className="map-overlay map-overlay-bottom">OFFLINE VECTOR / EVIDENCE-GROUNDED / HUMAN GATE</div><div className="map-legend"><span><i className="legend-dot legend-event" /> EVENT</span><span><i className="legend-dot legend-facility" /> FACILITY</span><span><i className="legend-line" /> ROUTE</span></div></div>
-              <div className="rationale-block"><span className="field-label">TRIAGE RATIONALE</span><p>{selectedIncident.rationale}</p></div>
+               <div className="rationale-block"><span className="field-label">{selectedIncident ? "TRIAGE RATIONALE" : "MAP STATUS"}</span><p>{selectedIncident?.rationale ?? "Offline vector canvas ready. Start a replay to populate event, facility, and route evidence."}</p></div>
             </>
-          ) : (
-            <EmptyState message="NO ACTIVE INCIDENT" detail="The canvas will populate when state contains an incident." />
           )}
         </section>
 
