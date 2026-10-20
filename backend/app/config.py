@@ -37,6 +37,21 @@ class Settings(BaseModel):
         default_factory=lambda: float(os.getenv("AEGIS_TRACE_INTERVAL_SECONDS", "2")),
         gt=0,
     )
+    live_enabled: bool = Field(default_factory=lambda: _env_bool("AEGIS_LIVE_ENABLED"))
+    live_poll_interval_seconds: float = Field(
+        default_factory=lambda: float(os.getenv("AEGIS_LIVE_POLL_INTERVAL_SECONDS", "30")),
+        gt=0,
+    )
+    live_max_polls: int = Field(
+        default_factory=lambda: int(os.getenv("AEGIS_LIVE_MAX_POLLS", "3")),
+        ge=1,
+    )
+    usgs_feed_url: str = Field(
+        default_factory=lambda: os.getenv(
+            "USGS_FEED_URL",
+            "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson",
+        )
+    )
 
     @property
     def cors_origins(self) -> list[str]:

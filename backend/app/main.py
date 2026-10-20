@@ -17,6 +17,7 @@ from .models import AuditEntry, DecisionRequest, Event, ModeRequest, TraceStep
 from .orchestrator import process_event, run_sample
 from .replay import ReplayEngine, load_scenario
 from .store import store
+from .tools.usgs import fetch_live_events
 
 
 async def _fake_trace_ticker() -> None:
@@ -42,7 +43,20 @@ runtime_mode: dict[str, object] = {
     "speed": 30.0,
     "running": False,
     "clock": None,
+    "poll_count": 0,
+    "cache_status": None,
+    "fallback": False,
+    "deduped_count": 0,
+    "last_poll_at": None,
+    "network": False,
 }
+
+
+async def _emit_trace(step: TraceStep) -> None:
+    """Persist and stream a trace step so status is visible through both APIs."""
+
+    store.add_trace(step)
+    await publish(step)
 
 
 async def _run_replay(scenario_name: str, speed: float) -> None:
@@ -79,9 +93,84 @@ async def _run_replay(scenario_name: str, speed: float) -> None:
         runtime_mode["running"] = False
 
 
+async def _run_live() -> None:
+    """Poll the USGS adapter a bounded number of times with event dedupe."""
+
+    seen_event_ids: set[str] = set()
+    runtime_mode.update(
+        {
+            "running": True,
+            "poll_count": 0,
+            "cache_status": None,
+            "fallback": False,
+            "deduped_count": 0,
+            "last_poll_at": None,
+            "network": settings.live_enabled and not settings.fixture_only,
+        }
+    )
+    try:
+        for poll_number in range(1, settings.live_max_polls + 1):
+            if poll_number > 1:
+                await asyncio.sleep(settings.live_poll_interval_seconds)
+            feed = await fetch_live_events(
+                url=settings.usgs_feed_url,
+                fixture_only=settings.fixture_only,
+            )
+            metadata = dict(feed.metadata)
+            poll_time = datetime.now(timezone.utc).isoformat()
+            runtime_mode.update(
+                {
+                    "poll_count": poll_number,
+                    "cache_status": metadata.get("cache_status"),
+                    "fallback": bool(metadata.get("fallback", False)),
+                    "last_poll_at": poll_time,
+                    "network": bool(metadata.get("network_attempted", False)),
+                }
+            )
+            await _emit_trace(
+                TraceStep(
+                    ts=datetime.now(timezone.utc),
+                    agent="sensor",
+                    kind="observe",
+                    message=(
+                        f"USGS live poll {poll_number}/{settings.live_max_polls}: "
+                        f"{len(feed.events)} event(s), cache {metadata.get('cache_status', 'unknown')}."
+                    ),
+                    refs={
+                        "mode": "live",
+                        "poll": poll_number,
+                        "event_count": len(feed.events),
+                        "cache_status": metadata.get("cache_status"),
+                        "fallback": metadata.get("fallback", False),
+                        "fallback_source": metadata.get("fallback_source"),
+                        "attempts": metadata.get("attempts", 0),
+                    },
+                )
+            )
+            for event in feed.events:
+                if event.id in seen_event_ids or store.get_event(event.id) is not None:
+                    current_deduped = runtime_mode.get("deduped_count", 0)
+                    runtime_mode["deduped_count"] = (
+                        (current_deduped if isinstance(current_deduped, int) else 0) + 1
+                    )
+                    await _emit_trace(
+                        TraceStep(
+                            ts=datetime.now(timezone.utc),
+                            agent="sensor",
+                            kind="dedupe",
+                            message=f"USGS event {event.id} already processed; skipped.",
+                            refs={"mode": "live", "event_id": event.id, "deduped": True},
+                        )
+                    )
+                    continue
+                seen_event_ids.add(event.id)
+                await process_event(event, data_store=store, resource_ledger=ledger)
+    finally:
+        runtime_mode["running"] = False
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    ticker = asyncio.create_task(_fake_trace_ticker(), name="aegis-fake-trace-ticker")
     try:
         yield
     finally:
@@ -89,8 +178,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         if replay_task is not None and not replay_task.done():
             replay_task.cancel()
             await asyncio.gather(replay_task, return_exceptions=True)
-        ticker.cancel()
-        await asyncio.gather(ticker, return_exceptions=True)
 
 
 app = FastAPI(title="AEGIS Backend", version="0.2.0", lifespan=lifespan)
@@ -233,23 +320,41 @@ async def set_mode(payload: ModeRequest) -> dict[str, object]:
             "speed": payload.speed,
             "running": False,
             "clock": None,
+            "poll_count": 0,
+            "cache_status": None,
+            "fallback": False,
+            "deduped_count": 0,
+            "last_poll_at": None,
+            "network": False,
         }
     )
     if payload.mode == "replay":
-        load_scenario(payload.scenario)
+        try:
+            load_scenario(payload.scenario)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid replay scenario: {exc}") from exc
         replay_task = asyncio.create_task(
             _run_replay(payload.scenario, payload.speed), name="aegis-replay"
         )
     else:
-        await publish(
-            TraceStep(
-                ts=datetime.now(timezone.utc),
-                agent="sensor",
-                kind="observe",
-                message="Live mode selected; no external feed is contacted in this offline build.",
-                refs={"mode": "live"},
+        if settings.live_enabled or settings.fixture_only:
+            replay_task = asyncio.create_task(_run_live(), name="aegis-live")
+        else:
+            await _emit_trace(
+                TraceStep(
+                    ts=datetime.now(timezone.utc),
+                    agent="sensor",
+                    kind="observe",
+                    message="Live mode selected; external polling is disabled by configuration.",
+                    refs={
+                        "mode": "live",
+                        "cache_status": "disabled",
+                        "fallback": True,
+                        "fallback_source": "none",
+                        "network": False,
+                    },
+                )
             )
-        )
     return dict(runtime_mode)
 
 

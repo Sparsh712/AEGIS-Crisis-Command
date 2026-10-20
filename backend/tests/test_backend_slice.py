@@ -2,6 +2,8 @@
 
 import asyncio
 
+from fastapi.testclient import TestClient
+
 from backend.app import main
 from backend.app.agents import auditor, sensor
 from backend.app.ledger import ResourceLedger
@@ -109,3 +111,28 @@ def test_compound_replay_processes_both_offline_events() -> None:
         main.ledger.reset()
 
     asyncio.run(scenario())
+
+
+def test_api_inject_and_approve_writes_audit_log() -> None:
+    main.store.clear()
+    main.ledger.reset()
+    with TestClient(main.app) as client:
+        injected = client.post("/api/dev/inject-sample")
+        assert injected.status_code == 200
+        plan = injected.json()
+        assert plan["status"] == "awaiting_approval"
+
+        approved = client.post(
+            f"/api/plans/{plan['id']}/approve",
+            json={"note": "Reviewed in the offline demo."},
+        )
+        assert approved.status_code == 200
+        assert approved.json()["status"] == "approved"
+
+        audit = client.get("/api/audit-log")
+        assert audit.status_code == 200
+        assert audit.json()[-1]["decision"] == "approved"
+        assert audit.json()[-1]["note"] == "Reviewed in the offline demo."
+
+    main.store.clear()
+    main.ledger.reset()

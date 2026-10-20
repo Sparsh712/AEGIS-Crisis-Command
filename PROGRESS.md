@@ -1,6 +1,6 @@
 # AEGIS progress
 
-Scope for this pass: **offline vertical slice through replay, audit, and human approval.**
+Checked boundary for this submission pass: **offline vertical slice through replay, audit, human approval, and demo-ready command-center UX.**
 
 ## Level 0
 
@@ -15,7 +15,7 @@ Scope for this pass: **offline vertical slice through replay, audit, and human a
 - [x] Add Nepal and labelled synthetic replay fixtures with accelerated offline replay.
 - [x] Add replay controls, incident queue, plan/evidence panel, and human approval UI.
 - [x] Add pinned Node/Python runtime markers, dependency lockfiles, Docker build, and Make targets.
-- [x] Document setup, checks, runtime behavior, and the honest prototype framing.
+- [x] Document setup, checks, runtime behavior, the two-minute demo path, and the honest prototype framing.
 
 ## Deferred levels
 
@@ -25,5 +25,18 @@ Scope for this pass: **offline vertical slice through replay, audit, and human a
 - [x] Level 4 resource ledger, Auditor checks, and bounded revision loop.
 - [x] Level 5 replay engine and compound synthetic scenario.
 - [x] Level 6 offline MapLibre event, facility, and route layers.
-- [ ] Level 7 live polling and deployment hardening.
-- [ ] Level 8 hosted deployment, screenshots, and demo video.
+- [x] Submission UX support: visible replay clock/status, full audit log, keyboard-accessible controls, and in-product demo guide.
+- [x] Level 7 bounded USGS live polling, timeout/retry/cache fallback, dedupe, and hardening tests.
+- [x] Level 8 container deployment blueprint, health check, and final demo instructions.
+- [ ] External hosted URL, screenshots, and demo video (requires an external account/network).
+
+## Demo readiness checklist
+
+- [x] Scenario A and Scenario B run end to end in Replay with the network off.
+- [x] Evidence chips open the supporting summary and raw JSON record.
+- [x] The Auditor catches the fixture contention case and the backend tests cover number mismatch and missing evidence.
+- [x] Approve/reject decisions are written to SQLite and displayed in reverse-chronological order in the UI.
+- [x] Hindi drafts carry a visible language-review notice and synthetic data carries a visible `SYNTHETIC` label.
+- [x] The UI has an in-product 2-minute script and keyboard shortcuts for the main demo actions.
+- [x] Container deployment instructions and health check.
+- [ ] Hosted URL, screenshots, and demo video.

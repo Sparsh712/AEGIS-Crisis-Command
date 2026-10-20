@@ -58,6 +58,32 @@ function formatDate(timestamp: string) {
   }).format(date);
 }
 
+function formatReplayClock(timestamp?: string | null) {
+  if (!timestamp) return "CLOCK STANDBY";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.valueOf())) return "CLOCK UNKNOWN";
+  return `${new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(date).toUpperCase()} UTC`;
+}
+
+function scenarioLabel(name?: string) {
+  if (name === "compound_synthetic") return "COMPOUND DISASTER";
+  if (name === "nepal_2015") return "NEPAL 2015";
+  return name?.replaceAll("_", " ").toUpperCase() ?? "REPLAY SCENARIO";
+}
+
+function auditDecisionLabel(decision: string) {
+  return decision.replaceAll("_", " ").toUpperCase();
+}
+
 function agentClass(agent: string) {
   return `agent-${agent.toLowerCase()}`;
 }
@@ -113,7 +139,7 @@ function EmptyState({ message, detail }: { message: string; detail: string }) {
 
 function EvidenceChip({ id, onOpen }: { id: string; onOpen: (id: string) => void }) {
   return (
-    <button type="button" className="evidence-chip" onClick={() => onOpen(id)}>
+    <button type="button" className="evidence-chip" onClick={() => onOpen(id)} aria-label={`Open evidence ${id}`}>
       {id}
     </button>
   );
@@ -166,6 +192,13 @@ export default function Home() {
     return connection.close;
   }, [loadState]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void getState().then(setData).catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const incidents = useMemo(
     () => [...(data?.incidents ?? [])].sort((left, right) => right.priority - left.priority),
     [data?.incidents],
@@ -185,6 +218,7 @@ export default function Home() {
   const selectedAudit = selectedPlan
     ? safeData.audit_log.find((entry) => entry.plan_id === selectedPlan.id)
     : undefined;
+  const auditEntries = [...safeData.audit_log].reverse();
   const completedAgents = useMemo(
     () => new Set(steps.flatMap((step) => [step.agent.toLowerCase()])),
     [steps],
@@ -193,6 +227,8 @@ export default function Home() {
   const displayedComms = selectedComms?.[commsLanguage] ?? "No communication draft is attached.";
   const canDecide = selectedPlan?.status === "awaiting_approval";
   const busy = mutating !== null;
+  const runtimeMode = safeData.mode;
+  const replayStatus = runtimeMode?.running ? "RUNNING" : "STOPPED";
 
   async function handleInject() {
     setMutating("inject");
@@ -246,6 +282,41 @@ export default function Home() {
     }
   }
 
+  useEffect(() => {
+    function handleKeyboardShortcut(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT"
+      ) {
+        return;
+      }
+
+      if (event.key === "Escape" && selectedEvidenceId) {
+        event.preventDefault();
+        setSelectedEvidenceId(null);
+      } else if (event.key === "1") {
+        setActivityTab("activity");
+      } else if (event.key === "2") {
+        setActivityTab("plan");
+      } else if (event.key.toLowerCase() === "r" && !busy) {
+        event.preventDefault();
+        void handleReplay(scenario);
+      } else if (event.key.toLowerCase() === "s" && !busy) {
+        event.preventDefault();
+        void stopReplay().then(() => getState().then(setData).catch(() => undefined));
+      } else if (event.key.toLowerCase() === "a" && canDecide && !busy) {
+        event.preventDefault();
+        void handleDecision("approve");
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyboardShortcut);
+    return () => window.removeEventListener("keydown", handleKeyboardShortcut);
+  }, [busy, canDecide, handleDecision, handleReplay, scenario, selectedEvidenceId]);
+
   const statusText =
     connectionStatus === "connected"
       ? "SSE LINKED"
@@ -267,23 +338,43 @@ export default function Home() {
         </div>
         <div className="topbar-meta">
           <span className="level-tag">LEVEL 1 / HUMAN CONTROL</span>
-          <span className={`connection-state state-${connectionStatus}`}>
+           <span className={`connection-state state-${connectionStatus}`}>
             <span className="state-dot" aria-hidden="true" />
             {statusText}
           </span>
         </div>
       </header>
 
+      <details className="demo-guide" open>
+        <summary>
+          <span><span className="field-label">DEMO / 02:00</span> Run the evidence-to-approval story</span>
+          <span className="guide-shortcuts"><kbd>R</kbd> replay <kbd>A</kbd> approve <kbd>1</kbd>/<kbd>2</kbd> views</span>
+        </summary>
+        <ol className="demo-steps">
+          <li><time>00:00–00:40</time><span>Start <strong>NEPAL 2015</strong> at <strong>30×</strong>. Watch Sensor and Triage populate the queue, map, priority, and evidence chips.</span></li>
+          <li><time>00:40–01:00</time><span>Open <strong>PLAN</strong>. Click an evidence chip to show the source summary and raw JSON behind a proposed action.</span></li>
+          <li><time>01:00–01:25</time><span>Start <strong>COMPOUND DISASTER</strong>. Point out the <strong>SYNTHETIC</strong> badge, facility contention, Auditor flags, and bounded revision.</span></li>
+          <li><time>01:25–01:45</time><span>Switch the comms draft between <strong>EN</strong> and <strong>HI</strong>, note the language-review flag, then approve the plan.</span></li>
+          <li><time>01:45–02:00</time><span>Close on the visible audit entry: evidence-grounded, audited, human-controlled, and offline from recorded data.</span></li>
+        </ol>
+      </details>
+
       <section className="command-strip" aria-label="Command controls">
         <div className="strip-field">
           <span className="field-label">MODE</span>
-          <strong>REPLAY</strong>
+          <strong>{runtimeMode?.mode?.toUpperCase() ?? "REPLAY"}</strong>
+          <span className={`replay-status replay-${runtimeMode?.running ? "running" : "stopped"}`}>{replayStatus}</span>
+        </div>
+        <div className="strip-divider" />
+        <div className="strip-field replay-clock-field">
+          <span className="field-label">REPLAY CLOCK</span>
+          <strong>{formatReplayClock(runtimeMode?.clock)}</strong>
         </div>
         <div className="strip-divider" />
         <div className="strip-field scenario-field">
           <span className="field-label">SCENARIO</span>
-           <strong>{selectedEvent?.raw.region as string | undefined ?? "Awaiting incident data"}</strong>
-          {selectedEvent?.synthetic && <span className="synthetic-badge">SYNTHETIC</span>}
+          <strong>{scenarioLabel(runtimeMode?.scenario ?? scenario)}</strong>
+          {(runtimeMode?.scenario === "compound_synthetic" || selectedEvent?.synthetic) && <span className="synthetic-badge">SYNTHETIC</span>}
         </div>
         <div className="strip-divider" />
         <div className="strip-field">
@@ -291,14 +382,14 @@ export default function Home() {
           <strong>{String(incidents.length).padStart(2, "0")} INCIDENTS</strong>
         </div>
          <div className="strip-actions replay-actions">
-           <label className="speed-control"><span className="field-label">SPEED</span><select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={1}>1×</option><option value={10}>10×</option><option value={30}>30×</option><option value={60}>60×</option></select></label>
-           <button type="button" className={`ghost-button ${scenario === "nepal_2015" ? "selected-control" : ""}`} onClick={() => void handleReplay("nepal_2015")} disabled={busy}>NEPAL 2015</button>
-           <button type="button" className={`ghost-button ${scenario === "compound_synthetic" ? "selected-control" : ""}`} onClick={() => void handleReplay("compound_synthetic")} disabled={busy}>SYNTHETIC</button>
-           <button type="button" className="ghost-button" onClick={() => void stopReplay().then(() => loadState(false))} disabled={busy}>STOP</button>
-           <button type="button" className="ghost-button" onClick={() => void loadState(false)} disabled={refreshing || busy}>
+            <label className="speed-control"><span className="field-label">SPEED</span><select aria-label="Replay speed" value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={1}>1×</option><option value={10}>10×</option><option value={30}>30×</option><option value={60}>60×</option></select></label>
+            <button type="button" className={`ghost-button ${scenario === "nepal_2015" ? "selected-control" : ""}`} onClick={() => void handleReplay("nepal_2015")} disabled={busy} aria-label="Start Nepal 2015 replay">NEPAL 2015</button>
+            <button type="button" className={`ghost-button ${scenario === "compound_synthetic" ? "selected-control" : ""}`} onClick={() => void handleReplay("compound_synthetic")} disabled={busy} aria-label="Start synthetic compound replay">SYNTHETIC</button>
+            <button type="button" className="ghost-button" onClick={() => void stopReplay().then(() => loadState(false))} disabled={busy} aria-keyshortcuts="S" aria-label="Stop replay">STOP</button>
+            <button type="button" className="ghost-button" onClick={() => void loadState(false)} disabled={refreshing || busy} aria-label="Refresh AEGIS state">
             {refreshing ? "REFRESHING" : "REFRESH STATE"}
           </button>
-          <button type="button" className="accent-button" onClick={() => void handleInject()} disabled={busy}>
+           <button type="button" className="accent-button" onClick={() => void handleInject()} disabled={busy} aria-label="Inject sample event">
             {mutating === "inject" ? "INJECTING…" : "INJECT SAMPLE"}
           </button>
         </div>
@@ -409,8 +500,8 @@ export default function Home() {
             <span className="count-badge">{activityTab === "activity" ? String(steps.length).padStart(2, "0") : selectedPlan ? "01" : "00"}</span>
           </div>
           <div className="tab-bar" role="tablist" aria-label="Decision bus views">
-            <button type="button" className={activityTab === "activity" ? "tab-active" : ""} onClick={() => setActivityTab("activity")}>ACTIVITY</button>
-            <button type="button" className={activityTab === "plan" ? "tab-active" : ""} onClick={() => setActivityTab("plan")}>PLAN {selectedPlan ? "· READY" : ""}</button>
+             <button type="button" role="tab" aria-selected={activityTab === "activity"} className={activityTab === "activity" ? "tab-active" : ""} onClick={() => setActivityTab("activity")} aria-keyshortcuts="1">ACTIVITY</button>
+             <button type="button" role="tab" aria-selected={activityTab === "plan"} className={activityTab === "plan" ? "tab-active" : ""} onClick={() => setActivityTab("plan")} aria-keyshortcuts="2">PLAN {selectedPlan ? "· READY" : ""}</button>
           </div>
 
           {activityTab === "activity" ? (
@@ -439,17 +530,34 @@ export default function Home() {
                     {selectedPlan.comms.length > 0 && <><div className="comms-controls"><div className="subtabs">{commsChannels.filter((channel) => selectedPlan.comms.some((item) => item.channel === channel)).map((channel) => <button type="button" className={commsChannel === channel ? "subtab-active" : ""} key={channel} onClick={() => setCommsChannel(channel)}>{channel.toUpperCase()}</button>)}</div><div className="language-toggle"><button type="button" className={commsLanguage === "en" ? "language-active" : ""} onClick={() => setCommsLanguage("en")}>EN</button><button type="button" className={commsLanguage === "hi" ? "language-active" : ""} onClick={() => setCommsLanguage("hi")}>HI</button></div></div><div className="comms-copy"><p lang={commsLanguage}>{displayedComms}</p><div className="comms-meta"><span>{displayedComms.length} / 160 CHARS</span>{selectedComms?.needs_language_review && <span className="review-notice">LANGUAGE REVIEW</span>}</div></div><div className="evidence-row comms-evidence"><span className="micro-label">CITES</span>{uniqueIds(selectedComms?.evidence_ids ?? []).map((id) => <EvidenceChip key={id} id={id} onOpen={setSelectedEvidenceId} />)}</div></>}
                   </section>
                   <section className="plan-section auditor-section"><div className="section-label"><span>AUDITOR</span><strong>{selectedPlan.auditor_flags.length} FLAGS</strong></div><p className="auditor-verdict">{selectedPlan.auditor_verdict === "pass" ? "Evidence, numeric claims, and resource assignments passed review." : "Review required before human decision."}</p>{selectedPlan.auditor_flags.length > 0 && <ul className="flag-list">{selectedPlan.auditor_flags.map((flag) => <li key={flag}>{flag}</li>)}</ul>}</section>
-                  <section className="decision-section"><div className="section-label"><span>HUMAN DECISION</span><strong>{selectedPlan.status.replaceAll("_", " ").toUpperCase()}</strong></div><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} placeholder="Optional approval note; required for rejection." disabled={busy || !canDecide} /><div className="decision-actions"><button type="button" className="reject-button" disabled={busy || !canDecide} onClick={() => void handleDecision("reject")}>{mutating === "reject" ? "REJECTING…" : "REJECT"}</button><button type="button" className="approve-button" disabled={busy || !canDecide} onClick={() => void handleDecision("approve")}>{mutating === "approve" ? "APPROVING…" : "APPROVE PLAN"}</button></div>{selectedAudit && <div className="audit-result"><span>RECORDED BY {selectedAudit.actor.toUpperCase()} · {formatDate(selectedAudit.decided_at)}</span>{selectedAudit.note && <p>“{selectedAudit.note}”</p>}</div>}</section>
-                </>
-              )}
-            </div>
-          )}
-        </aside>
+                   <section className="decision-section"><div className="section-label"><span>HUMAN DECISION</span><strong>{selectedPlan.status.replaceAll("_", " ").toUpperCase()}</strong></div><label className="sr-only" htmlFor="decision-note">Decision note</label><textarea id="decision-note" value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} placeholder="Optional approval note; required for rejection." disabled={busy || !canDecide} /><div className="decision-actions"><button type="button" className="reject-button" disabled={busy || !canDecide} onClick={() => void handleDecision("reject")}>{mutating === "reject" ? "REJECTING…" : "REJECT"}</button><button type="button" className="approve-button" disabled={busy || !canDecide} onClick={() => void handleDecision("approve")} aria-keyshortcuts="A">{mutating === "approve" ? "APPROVING…" : "APPROVE PLAN"}</button></div>{selectedAudit && <div className="audit-result"><span>RECORDED BY {selectedAudit.actor.toUpperCase()} · {formatDate(selectedAudit.decided_at)}</span>{selectedAudit.note && <p>“{selectedAudit.note}”</p>}</div>}</section>
+                 </>
+               )}
+             </div>
+           )}
+
+          <section className="audit-log-panel" aria-labelledby="audit-log-heading">
+            <div className="section-label"><span id="audit-log-heading">AUDIT LOG</span><strong>{String(auditEntries.length).padStart(2, "0")} DECISIONS</strong></div>
+            {auditEntries.length === 0 ? (
+              <p className="audit-empty">No human decision recorded yet. Approve or reject an awaiting plan to create the first entry.</p>
+            ) : (
+              <div className="audit-log-list">
+                {auditEntries.map((entry) => (
+                  <article className="audit-log-entry" key={entry.id}>
+                    <div className="audit-log-meta"><span className={`audit-decision audit-${entry.decision}`}>{auditDecisionLabel(entry.decision)}</span><time dateTime={entry.decided_at}>{formatDate(entry.decided_at)}</time></div>
+                    <strong>{entry.actor.toUpperCase()} · {entry.plan_id}</strong>
+                    {entry.note && <p>{entry.note}</p>}
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+           </aside>
       </div>
 
       {selectedEvidence && <div className="drawer-backdrop" role="presentation" onClick={() => setSelectedEvidenceId(null)}><aside className="evidence-drawer" role="dialog" aria-modal="true" aria-label={`Evidence ${selectedEvidence.id}`} onClick={(event) => event.stopPropagation()}><div className="drawer-heading"><div><span className="panel-index">EVIDENCE RECORD</span><h2>{selectedEvidence.id}</h2></div><button type="button" className="close-button" onClick={() => setSelectedEvidenceId(null)} aria-label="Close evidence drawer">×</button></div><div className="drawer-meta"><span>{selectedEvidence.tool}</span><time>{formatDate(selectedEvidence.fetched_at)}</time></div><p className="evidence-summary">{selectedEvidence.summary}</p><pre>{JSON.stringify(selectedEvidence.data, null, 2)}</pre></aside></div>}
 
-      <footer className="honest-footer"><span>AEGIS / DECISION-SUPPORT PROTOTYPE</span><span>It never sends real alerts or dispatches anything. Approved actions are written to an audit log.</span><span>LEVEL 1 BUILD</span></footer>
+      <footer className="honest-footer"><span>AEGIS / DECISION-SUPPORT PROTOTYPE</span><span>Offline recorded fixtures only. It never sends real alerts or dispatches anything; approved actions are audit records. Hindi drafts need human language review.</span><span>REPLAY-FIRST BUILD</span></footer>
     </main>
   );
 }

@@ -12,6 +12,7 @@ __pycache__/
 *.py[cod]
 *.log
 *.sqlite3
+backend/.cache/
 .pytest_cache/
 .mypy_cache/
 

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: aegis-command-center
+    runtime: docker
+    healthCheckPath: /api/health
+    plan: free
+    envVars:
+      - key: FRONTEND_ORIGIN
+        value: https://aegis-command-center.onrender.com
+      - key: FIXTURE_ONLY
+        value: "1"
+      - key: FAKE_LLM
+        value: "1"
+      - key: AEGIS_LIVE_ENABLED
+        value: "0"

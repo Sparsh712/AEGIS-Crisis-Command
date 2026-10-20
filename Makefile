@@ -26,10 +26,10 @@ api:
 	$(PYTHON) -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload
 
 docker-build:
-	docker build -t aegis-level-0 .
+	docker build -t aegis:local .
 
 docker-run:
-	docker run --rm -p 8000:8000 aegis-level-0
+	docker run --rm -p 8000:8000 aegis:local
 
 clean:
 	python -c "import shutil; [shutil.rmtree(p, ignore_errors=True) for p in ['frontend/.next', 'frontend/out']]"

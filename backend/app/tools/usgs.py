@@ -1,21 +1,30 @@
-"""Offline USGS-shaped earthquake tools.
+"""USGS earthquake tools with fixture-safe live polling.
 
-The production boundary can later add an HTTP adapter around these parsers.
-For now every public function reads a local scenario fixture so replay and
-tests never depend on network access, wall-clock time, or a remote API.
+The synchronous helpers remain deterministic fixture readers. The async
+adapter uses the shared HTTP/cache wrapper and returns an empty feed with
+metadata when a live request cannot be used.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Any, Mapping
 
 from ..models import Event, Hazard
+from .http import DEFAULT_TIMEOUT_SECONDS, HttpResult, fetch_json
 
 
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "fixtures" / "scenarios" / "nepal_2015.json"
+DEFAULT_FEED_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
+
+
+@dataclass(frozen=True)
+class USGSFeed:
+    events: list[Event]
+    metadata: dict[str, Any]
 
 
 def _read_fixture(fixture: str | Path | Mapping[str, Any] | None) -> Mapping[str, Any]:
@@ -128,6 +137,68 @@ def historical_query(
             if event.magnitude is not None and event.magnitude >= minmagnitude
         ]
     return events
+
+
+class USGSAdapter:
+    """Async live-feed adapter that never turns transport failure into a crash."""
+
+    def __init__(
+        self, url: str = DEFAULT_FEED_URL, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    ) -> None:
+        self.url = url
+        self.timeout_seconds = timeout_seconds
+
+    async def fetch_live(
+        self,
+        *,
+        fixture: str | Path | Mapping[str, Any] | None = None,
+        fixture_only: bool = False,
+        cache_dir: str | Path | None = None,
+    ) -> USGSFeed:
+        fallback_fixture = fixture
+        if fixture_only and fallback_fixture is None:
+            fallback_fixture = FIXTURE_PATH
+        result: HttpResult = await fetch_json(
+            self.url,
+            cache_key=f"usgs:{self.url}",
+            cache_dir=cache_dir,
+            fixture=fallback_fixture,
+            fixture_only=fixture_only,
+            timeout_seconds=self.timeout_seconds,
+            retry_count=1,
+        )
+        metadata = dict(result.metadata)
+        if result.data is None:
+            metadata.setdefault("parse_status", "empty")
+            return USGSFeed([], metadata)
+        try:
+            events = load_fixture_events(result.data)
+        except (TypeError, ValueError, KeyError) as exc:
+            metadata.update(
+                {
+                    "cache_status": "fallback",
+                    "fallback": True,
+                    "fallback_source": "none",
+                    "parse_error": str(exc),
+                }
+            )
+            return USGSFeed([], metadata)
+        metadata["event_count"] = len(events)
+        return USGSFeed(events, metadata)
+
+
+async def fetch_live_events(
+    *,
+    url: str = DEFAULT_FEED_URL,
+    fixture: str | Path | Mapping[str, Any] | None = None,
+    fixture_only: bool = False,
+    cache_dir: str | Path | None = None,
+) -> USGSFeed:
+    """Fetch and parse one USGS feed snapshot without raising network errors."""
+
+    return await USGSAdapter(url).fetch_live(
+        fixture=fixture, fixture_only=fixture_only, cache_dir=cache_dir
+    )
 
 
 # Names that read naturally at call sites.
