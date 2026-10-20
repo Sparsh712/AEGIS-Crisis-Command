@@ -50,7 +50,6 @@ export function connectToTrace(
   const url = `${apiBase.replace(/\/$/, "")}/api/stream`;
   let source: EventSource | undefined;
   let fallbackTimer: ReturnType<typeof setInterval> | undefined;
-  let fallbackTimeout: number | undefined;
   let fallbackIndex = 0;
   let settled = false;
 
@@ -72,6 +71,10 @@ export function connectToTrace(
     startFallback();
   } else {
     source = new EventSource(url);
+    source.onopen = () => {
+      settled = true;
+      onStatus("connected");
+    };
     source.addEventListener("trace", (event) => {
       settled = true;
       onStatus("connected");
@@ -82,16 +85,18 @@ export function connectToTrace(
       }
     });
     source.onerror = () => {
-      startFallback();
+      if (settled) {
+        onStatus("error");
+      } else {
+        startFallback();
+      }
     };
-    fallbackTimeout = window.setTimeout(startFallback, 1800);
   }
 
   return {
     close: () => {
       source?.close();
       if (fallbackTimer) clearInterval(fallbackTimer);
-      if (fallbackTimeout) window.clearTimeout(fallbackTimeout);
     },
   };
 }

@@ -1,8 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { decidePlan, getState, injectSample, setMode, stopReplay } from "@/lib/api";
 import { connectToTrace } from "@/lib/sse";
-import type { AgentName, TraceStep } from "@/lib/types";
+import type {
+  AegisState,
+  EventRecord,
+  Incident,
+  Plan,
+  TraceStep,
+} from "@/lib/types";
+
+const emptyState: AegisState = {
+  events: [],
+  incidents: [],
+  plans: [],
+  facilities: [],
+  evidence: [],
+  audit_log: [],
+};
 
 const agentLabels: Record<string, string> = {
   sensor: "SENSOR",
@@ -14,62 +30,250 @@ const agentLabels: Record<string, string> = {
   system: "SYSTEM",
 };
 
-const agentOrder: AgentName[] = ["sensor", "triage", "logistics", "comms", "auditor"];
+const agentOrder = ["sensor", "triage", "logistics", "comms", "auditor"];
+const commsChannels = ["sms", "social", "bulletin"];
 
 function formatTime(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.valueOf())) return "--:--:--";
   return new Intl.DateTimeFormat("en", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-  }).format(new Date(timestamp));
+  }).format(date);
+}
+
+function formatDate(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.valueOf())) return "Unknown time";
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 function agentClass(agent: string) {
   return `agent-${agent.toLowerCase()}`;
 }
 
+function hazardLabel(hazard: string) {
+  return hazard.replaceAll("_", " ").toUpperCase();
+}
+
+function planForIncident(incident: Incident, plans: Plan[]) {
+  return plans.find((plan) => plan.incident_id === incident.id);
+}
+
+function incidentStatus(incident: Incident, plans: Plan[]) {
+  const status = planForIncident(incident, plans)?.status;
+  if (!status) return "QUEUED";
+  return status.replaceAll("_", " ").toUpperCase();
+}
+
+function eventForIncident(incident: Incident, events: EventRecord[]) {
+  return events.find((event) => incident.event_ids.includes(event.id));
+}
+
+function readableActionType(type: string) {
+  return type.replaceAll("_", " ");
+}
+
+function uniqueIds(ids: string[]) {
+  return [...new Set(ids)];
+}
+
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="state-card state-error-card">
+      <span className="state-symbol">!</span>
+      <strong>CONNECTION FAULT</strong>
+      <p>{message}</p>
+      <button type="button" className="ghost-button" onClick={onRetry}>
+        RETRY STATE LOAD
+      </button>
+    </div>
+  );
+}
+
+function EmptyState({ message, detail }: { message: string; detail: string }) {
+  return (
+    <div className="state-card">
+      <span className="state-symbol state-symbol-muted">+</span>
+      <strong>{message}</strong>
+      <p>{detail}</p>
+    </div>
+  );
+}
+
+function EvidenceChip({ id, onOpen }: { id: string; onOpen: (id: string) => void }) {
+  return (
+    <button type="button" className="evidence-chip" onClick={() => onOpen(id)}>
+      {id}
+    </button>
+  );
+}
+
 export default function Home() {
+  const [data, setData] = useState<AegisState | null>(null);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [steps, setSteps] = useState<TraceStep[]>([]);
-  const [status, setStatus] = useState<"connecting" | "connected" | "fallback" | "error">(
-    "connecting",
+  const [connectionStatus, setConnectionStatus] = useState<
+    "connecting" | "connected" | "fallback" | "error"
+  >("connecting");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [activityTab, setActivityTab] = useState<"activity" | "plan">("activity");
+  const [note, setNote] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [mutating, setMutating] = useState<"inject" | "approve" | "reject" | null>(null);
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
+  const [commsChannel, setCommsChannel] = useState("sms");
+  const [commsLanguage, setCommsLanguage] = useState<"en" | "hi">("en");
+  const [scenario, setScenario] = useState("nepal_2015");
+  const [speed, setSpeed] = useState(30);
+
+  const loadState = useCallback(async (initial = false) => {
+    if (initial) setLoading(true);
+    else setRefreshing(true);
+    setError(null);
+    try {
+      setData(await getState());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load AEGIS state.");
+    } finally {
+      if (initial) setLoading(false);
+      else setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadState(true);
+    const connection = connectToTrace(
+      (step) => {
+        setSteps((current) => [...current.filter((item) => item.ts !== step.ts || item.message !== step.message), step].slice(-40));
+        if (step.agent === "human") void loadState(false);
+      },
+      setConnectionStatus,
+    );
+    return connection.close;
+  }, [loadState]);
+
+  const incidents = useMemo(
+    () => [...(data?.incidents ?? [])].sort((left, right) => right.priority - left.priority),
+    [data?.incidents],
   );
 
   useEffect(() => {
-    const connection = connectToTrace(
-      (step) => setSteps((current) => [...current.slice(-11), step]),
-      setStatus,
-    );
-    return connection.close;
-  }, []);
+    if (!selectedIncidentId || !incidents.some((incident) => incident.id === selectedIncidentId)) {
+      setSelectedIncidentId(incidents[0]?.id ?? null);
+    }
+  }, [incidents, selectedIncidentId]);
 
+  const safeData = data ?? emptyState;
+  const selectedIncident = incidents.find((incident) => incident.id === selectedIncidentId);
+  const selectedPlan = selectedIncident ? planForIncident(selectedIncident, safeData.plans) : undefined;
+  const selectedEvent = selectedIncident ? eventForIncident(selectedIncident, safeData.events) : undefined;
+  const selectedEvidence = safeData.evidence.find((item) => item.id === selectedEvidenceId);
+  const selectedAudit = selectedPlan
+    ? safeData.audit_log.find((entry) => entry.plan_id === selectedPlan.id)
+    : undefined;
   const completedAgents = useMemo(
-    () => new Set(steps.map((step) => step.agent.toLowerCase())),
+    () => new Set(steps.flatMap((step) => [step.agent.toLowerCase()])),
     [steps],
   );
+  const selectedComms = selectedPlan?.comms.find((item) => item.channel === commsChannel) ?? selectedPlan?.comms[0];
+  const displayedComms = selectedComms?.[commsLanguage] ?? "No communication draft is attached.";
+  const canDecide = selectedPlan?.status === "awaiting_approval";
+  const busy = mutating !== null;
+
+  async function handleInject() {
+    setMutating("inject");
+    setActionError(null);
+    setNotice(null);
+    try {
+      await injectSample();
+      await loadState(false);
+      setNotice("Sample event injected. Plan state refreshed from the backend.");
+      setActivityTab("plan");
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "Sample injection failed.");
+    } finally {
+      setMutating(null);
+    }
+  }
+
+  async function handleReplay(nextScenario: string) {
+    setMutating("inject");
+    setActionError(null);
+    setScenario(nextScenario);
+    try {
+      await setMode("replay", nextScenario, speed);
+      await loadState(false);
+      setNotice(`${nextScenario === "compound_synthetic" ? "Synthetic compound" : "Nepal 2015"} replay started.`);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "Replay could not start.");
+    } finally {
+      setMutating(null);
+    }
+  }
+
+  async function handleDecision(decision: "approve" | "reject") {
+    if (!selectedPlan) return;
+    if (decision === "reject" && !note.trim()) {
+      setActionError("A short note is required when rejecting a plan.");
+      return;
+    }
+    setMutating(decision);
+    setActionError(null);
+    setNotice(null);
+    try {
+      await decidePlan(selectedPlan.id, decision, note);
+      await loadState(false);
+      setNote("");
+      setNotice(`Plan ${decision === "approve" ? "approved" : "rejected"}. Audit log updated.`);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "Decision could not be recorded.");
+    } finally {
+      setMutating(null);
+    }
+  }
+
+  const statusText =
+    connectionStatus === "connected"
+      ? "SSE LINKED"
+      : connectionStatus === "fallback"
+        ? "LOCAL REPLAY"
+        : connectionStatus === "error"
+          ? "SSE ERROR"
+          : "CONNECTING";
 
   return (
     <main className="shell">
       <header className="topbar">
         <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true">
-            A
-          </div>
+          <div className="brand-mark" aria-hidden="true">A</div>
           <div>
             <p className="brand-name">AEGIS</p>
             <p className="brand-subtitle">CRISIS COMMAND CENTER</p>
           </div>
         </div>
         <div className="topbar-meta">
-          <span className="level-tag">LEVEL 0 / FOUNDATIONS</span>
-          <span className={`connection-state state-${status}`}>
+          <span className="level-tag">LEVEL 1 / HUMAN CONTROL</span>
+          <span className={`connection-state state-${connectionStatus}`}>
             <span className="state-dot" aria-hidden="true" />
-            {status === "connected" ? "SSE LINKED" : status === "fallback" ? "LOCAL REPLAY" : status}
+            {statusText}
           </span>
         </div>
       </header>
 
-      <section className="command-strip" aria-label="Replay controls">
+      <section className="command-strip" aria-label="Command controls">
         <div className="strip-field">
           <span className="field-label">MODE</span>
           <strong>REPLAY</strong>
@@ -77,23 +281,31 @@ export default function Home() {
         <div className="strip-divider" />
         <div className="strip-field scenario-field">
           <span className="field-label">SCENARIO</span>
-          <strong>Nepal 2015 / Mainshock</strong>
-          <span className="synthetic-badge">FIXTURE</span>
+           <strong>{selectedEvent?.raw.region as string | undefined ?? "Awaiting incident data"}</strong>
+          {selectedEvent?.synthetic && <span className="synthetic-badge">SYNTHETIC</span>}
         </div>
         <div className="strip-divider" />
         <div className="strip-field">
-          <span className="field-label">REPLAY CLOCK</span>
-          <strong>00:00:12</strong>
+          <span className="field-label">QUEUE</span>
+          <strong>{String(incidents.length).padStart(2, "0")} INCIDENTS</strong>
         </div>
-        <div className="strip-actions">
-          <button type="button" className="ghost-button">
-            1× SPEED
+         <div className="strip-actions replay-actions">
+           <label className="speed-control"><span className="field-label">SPEED</span><select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={1}>1×</option><option value={10}>10×</option><option value={30}>30×</option><option value={60}>60×</option></select></label>
+           <button type="button" className={`ghost-button ${scenario === "nepal_2015" ? "selected-control" : ""}`} onClick={() => void handleReplay("nepal_2015")} disabled={busy}>NEPAL 2015</button>
+           <button type="button" className={`ghost-button ${scenario === "compound_synthetic" ? "selected-control" : ""}`} onClick={() => void handleReplay("compound_synthetic")} disabled={busy}>SYNTHETIC</button>
+           <button type="button" className="ghost-button" onClick={() => void stopReplay().then(() => loadState(false))} disabled={busy}>STOP</button>
+           <button type="button" className="ghost-button" onClick={() => void loadState(false)} disabled={refreshing || busy}>
+            {refreshing ? "REFRESHING" : "REFRESH STATE"}
           </button>
-          <button type="button" className="accent-button">
-            START REPLAY
+          <button type="button" className="accent-button" onClick={() => void handleInject()} disabled={busy}>
+            {mutating === "inject" ? "INJECTING…" : "INJECT SAMPLE"}
           </button>
         </div>
       </section>
+
+      {notice && <div className="toast toast-success" role="status">{notice}</div>}
+      {error && data && <div className="toast toast-error" role="alert">State refresh failed: {error}</div>}
+      {actionError && <div className="toast toast-error" role="alert">{actionError}</div>}
 
       <div className="workspace">
         <aside className="panel incident-panel">
@@ -102,145 +314,156 @@ export default function Home() {
               <span className="panel-index">01 / QUEUE</span>
               <h1>Active incidents</h1>
             </div>
-            <span className="count-badge">01</span>
+            <span className="count-badge">{String(incidents.length).padStart(2, "0")}</span>
           </div>
 
-          <button type="button" className="incident-row selected-incident">
-            <span className="incident-priority">P5</span>
-            <span className="incident-copy">
-              <strong>Nepal mainshock</strong>
-              <span>Earthquake · 25 Apr 2015</span>
-            </span>
-            <span className="incident-status">ACTIVE</span>
-          </button>
+          {loading ? (
+            <div className="queue-skeleton" aria-label="Loading incidents">
+              <span /><span /><span />
+            </div>
+          ) : error && !data ? (
+            <ErrorState message={error} onRetry={() => void loadState(true)} />
+          ) : incidents.length === 0 ? (
+            <EmptyState message="QUEUE CLEAR" detail="Inject a sample event to start the reviewed response flow." />
+          ) : (
+            incidents.map((incident) => {
+              const event = eventForIncident(incident, safeData.events);
+              const isSelected = incident.id === selectedIncidentId;
+              return (
+                <button
+                  type="button"
+                  className={`incident-row ${isSelected ? "selected-incident" : ""}`}
+                  key={incident.id}
+                  onClick={() => {
+                    setSelectedIncidentId(incident.id);
+                    setActivityTab("plan");
+                    setActionError(null);
+                  }}
+                >
+                  <span className="hazard-icon" aria-hidden="true">{incident.hazard === "earthquake" ? "⌁" : "◇"}</span>
+                  <span className="incident-copy">
+                    <strong>{event?.raw.region as string | undefined ?? incident.id}</strong>
+                    <span>{hazardLabel(incident.hazard)} · {event?.magnitude ? `M${event.magnitude}` : "magnitude n/a"}</span>
+                  </span>
+                  <span className={`priority-chip priority-${incident.priority}`}>P{incident.priority}</span>
+                  <span className="incident-status">{incidentStatus(incident, safeData.plans)}</span>
+                </button>
+              );
+            })
+          )}
 
-          <div className="incident-detail">
-            <div className="detail-row">
-              <span>MAGNITUDE</span>
-              <strong>7.8 Mw</strong>
-            </div>
-            <div className="detail-row">
-              <span>REGION</span>
-              <strong>Gorkha, Nepal</strong>
-            </div>
-            <div className="detail-row">
-              <span>PIPELINE</span>
-              <strong>{steps.length ? `${Math.min(steps.length, 5)} / 5 agents` : "awaiting stream"}</strong>
-            </div>
-          </div>
-
-          <div className="pipeline-list" aria-label="Agent pipeline">
-            {agentOrder.map((agent, index) => (
-              <div className="pipeline-step" key={agent}>
-                <span className={`pipeline-node ${completedAgents.has(agent) ? "node-complete" : ""}`}>
-                  {completedAgents.has(agent) ? "✓" : `0${index + 1}`}
-                </span>
-                <span>{agentLabels[agent]}</span>
-                <span className="pipeline-line" />
-                <span className="pipeline-state">{completedAgents.has(agent) ? "DONE" : "WAIT"}</span>
+          {selectedIncident && (
+            <>
+              <div className="incident-detail">
+                <div className="detail-row"><span>DETECTION SCORE</span><strong>{selectedIncident.det_score} / 5</strong></div>
+                <div className="detail-row"><span>EXPOSURE</span><strong>{selectedIncident.exposure_estimate ?? "—"}</strong></div>
+                <div className="detail-row"><span>PIPELINE</span><strong>{steps.length ? `${Math.min(completedAgents.size, 5)} / 5 agents` : "awaiting stream"}</strong></div>
               </div>
-            ))}
-          </div>
+              <div className="pipeline-list" aria-label="Agent pipeline">
+                {agentOrder.map((agent, index) => (
+                  <div className="pipeline-step" key={agent}>
+                    <span className={`pipeline-node ${completedAgents.has(agent) ? "node-complete" : ""}`}>
+                      {completedAgents.has(agent) ? "✓" : `0${index + 1}`}
+                    </span>
+                    <span>{agentLabels[agent]}</span>
+                    <span className="pipeline-line" />
+                    <span className="pipeline-state">{completedAgents.has(agent) ? "DONE" : "WAIT"}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </aside>
 
         <section className="panel canvas-panel" aria-label="Operational canvas">
           <div className="panel-heading canvas-heading">
             <div>
               <span className="panel-index">02 / OPERATIONS</span>
-              <h1>Evidence path</h1>
+              <h1>{selectedIncident ? "Incident overview" : "Operational canvas"}</h1>
             </div>
-            <span className="live-indicator">
-              <span className="live-pulse" aria-hidden="true" /> STREAMING
-            </span>
+            <span className="live-indicator"><span className="live-pulse" aria-hidden="true" /> LIVE ACTIVITY</span>
           </div>
 
-          <div className="canvas-grid">
-            <div className="coordinate coordinate-top-left">27.7172° N / 85.3240° E</div>
-            <div className="coordinate coordinate-bottom-right">REPLAY / OFFLINE-CAPABLE</div>
-            <div className="crosshair crosshair-main" aria-hidden="true">
-              <span />
-              <span />
-            </div>
-            <div className="incident-orbit" aria-hidden="true">
-              <span className="orbit-ring orbit-ring-large" />
-              <span className="orbit-ring orbit-ring-small" />
-              <span className="orbit-core" />
-            </div>
-            <div className="canvas-label label-event">
-              <span className="label-kicker">EVENT / USGS FIXTURE</span>
-              <strong>M7.8</strong>
-              <span>GORKHA REGION</span>
-            </div>
-            <div className="route route-one" />
-            <div className="route route-two" />
-            <div className="facility facility-one">HOSPITAL / 01</div>
-            <div className="facility facility-two">SHELTER / 02</div>
-            <div className="canvas-legend">
-              <span><i className="legend-dot legend-event" /> EVENT</span>
-              <span><i className="legend-dot legend-facility" /> FACILITY</span>
-              <span><i className="legend-line" /> ROUTE</span>
-            </div>
-          </div>
-
-          <div className="canvas-footer">
-            <span>NO LIVE DISPATCH</span>
-            <span className="footer-separator">/</span>
-            <span>HUMAN APPROVAL REQUIRED</span>
-            <span className="footer-separator">/</span>
-            <span>EVIDENCE IDS ENABLE AUDIT</span>
-          </div>
+          {loading ? (
+            <div className="canvas-loading"><span className="loading-orbit" /><p>Hydrating command state…</p></div>
+          ) : selectedIncident ? (
+            <>
+              <div className="overview-strip">
+                <div><span>INCIDENT</span><strong>{selectedIncident.id}</strong></div>
+                <div><span>HAZARD</span><strong>{hazardLabel(selectedIncident.hazard)}</strong></div>
+                <div><span>PRIORITY</span><strong className="accent-text">P{selectedIncident.priority}</strong></div>
+                <div><span>PLAN</span><strong>{selectedPlan?.status.replaceAll("_", " ").toUpperCase() ?? "NOT GENERATED"}</strong></div>
+              </div>
+              <div className="canvas-grid">
+                <div className="coordinate coordinate-top-left">{selectedEvent ? `${selectedEvent.lat.toFixed(4)}° N / ${selectedEvent.lon.toFixed(4)}° E` : "COORDINATES PENDING"}</div>
+                <div className="coordinate coordinate-bottom-right">EVIDENCE-GROUNDED / HUMAN GATE</div>
+                <div className="crosshair crosshair-main" aria-hidden="true"><span /><span /></div>
+                <div className="incident-orbit" aria-hidden="true"><span className="orbit-ring orbit-ring-large" /><span className="orbit-ring orbit-ring-small" /><span className="orbit-core" /></div>
+                <div className="canvas-label">
+                  <span className="label-kicker">EVENT / {selectedEvent?.source.toUpperCase() ?? "UNKNOWN"}</span>
+                  <strong>{selectedEvent?.magnitude ? `M${selectedEvent.magnitude}` : "—"}</strong>
+                  <span>{hazardLabel(selectedIncident.hazard)}</span>
+                </div>
+                <div className="route route-one" /><div className="route route-two" />
+                {safeData.facilities.slice(0, 2).map((facility, index) => (
+                  <div className={`facility facility-${index + 1}`} key={facility.id}>{facility.type.toUpperCase()} / {String(index + 1).padStart(2, "0")}</div>
+                ))}
+                <div className="canvas-legend"><span><i className="legend-dot legend-event" /> EVENT</span><span><i className="legend-dot legend-facility" /> FACILITY</span><span><i className="legend-line" /> ROUTE</span></div>
+              </div>
+              <div className="rationale-block"><span className="field-label">TRIAGE RATIONALE</span><p>{selectedIncident.rationale}</p></div>
+            </>
+          ) : (
+            <EmptyState message="NO ACTIVE INCIDENT" detail="The canvas will populate when state contains an incident." />
+          )}
         </section>
 
-        <aside className="panel activity-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="panel-index">03 / TRACE BUS</span>
-              <h1>Agent activity</h1>
-            </div>
-            <span className="count-badge">{String(steps.length).padStart(2, "0")}</span>
+        <aside className="panel detail-panel">
+          <div className="panel-heading detail-heading">
+            <div><span className="panel-index">03 / DECISION BUS</span><h1>{activityTab === "activity" ? "Agent activity" : "Selected plan"}</h1></div>
+            <span className="count-badge">{activityTab === "activity" ? String(steps.length).padStart(2, "0") : selectedPlan ? "01" : "00"}</span>
+          </div>
+          <div className="tab-bar" role="tablist" aria-label="Decision bus views">
+            <button type="button" className={activityTab === "activity" ? "tab-active" : ""} onClick={() => setActivityTab("activity")}>ACTIVITY</button>
+            <button type="button" className={activityTab === "plan" ? "tab-active" : ""} onClick={() => setActivityTab("plan")}>PLAN {selectedPlan ? "· READY" : ""}</button>
           </div>
 
-          <div className="activity-feed" aria-live="polite">
-            {steps.length === 0 ? (
-              <div className="feed-empty">
-                <span className="empty-scan" aria-hidden="true" />
-                <p>Waiting for TraceStep events.</p>
-                <small>The feed will hydrate from /api/stream.</small>
-              </div>
-            ) : (
-              steps.map((step, index) => (
-                <article className="activity-item" key={`${step.ts}-${index}`}>
-                  <div className="activity-meta">
-                    <span className={`agent-chip ${agentClass(step.agent)}`}>
-                      {agentLabels[step.agent.toLowerCase()] ?? step.agent.toUpperCase()}
-                    </span>
-                    <time dateTime={step.ts}>{formatTime(step.ts)}</time>
-                  </div>
+          {activityTab === "activity" ? (
+            <div className="activity-feed" aria-live="polite">
+              {steps.length === 0 ? (
+                <div className="feed-empty"><span className="empty-scan" aria-hidden="true" /><p>Waiting for TraceStep events.</p><small>Live updates arrive from /api/stream.</small></div>
+              ) : steps.map((step, index) => (
+                <article className="activity-item" key={`${step.ts}-${step.message}-${index}`}>
+                  <div className="activity-meta"><span className={`agent-chip ${agentClass(step.agent)}`}>{agentLabels[step.agent.toLowerCase()] ?? step.agent.toUpperCase()}</span><time dateTime={step.ts}>{formatTime(step.ts)}</time></div>
                   <p>{step.message}</p>
-                  <span className="activity-kind">{step.kind.replaceAll("_", " ")}</span>
+                  <div className="activity-foot"><span className="activity-kind">{step.kind.replaceAll("_", " ")}</span>{Array.isArray(step.refs?.evidence_ids) && <span className="activity-ref">{step.refs.evidence_ids.length} EVIDENCE IDS</span>}</div>
                 </article>
-              ))
-            )}
-          </div>
-
-          <div className="plan-preview">
-            <div className="plan-preview-head">
-              <span>PLAN STATUS</span>
-              <strong>AWAITING APPROVAL</strong>
+              ))}
             </div>
-            <p>Stage resources, attach bilingual drafts, then route to a human decision.</p>
-            <button type="button" className="approval-button" disabled>
-              APPROVAL UI / LEVEL 1
-            </button>
-          </div>
+          ) : (
+            <div className="plan-panel">
+              {!selectedPlan ? (
+                <EmptyState message="NO PLAN SELECTED" detail="Run the sample flow or select an incident with a generated plan." />
+              ) : (
+                <>
+                  <div className="plan-status-row"><span className={`verdict-badge verdict-${selectedPlan.auditor_verdict ?? "pending"}`}>{(selectedPlan.auditor_verdict ?? "pending").toUpperCase()}</span><span className="plan-revision">REV {selectedPlan.revision}</span></div>
+                  <section className="plan-section"><div className="section-label"><span>ACTIONS</span><strong>{selectedPlan.actions.length}</strong></div>
+                    <div className="action-list">{selectedPlan.actions.map((action) => <article className="action-item" key={`${action.type}-${action.target}`}><div className="action-title"><strong>{readableActionType(action.type)}</strong><span>{action.target}</span></div><p>{action.detail}</p><div className="evidence-row"><span className="micro-label">EVIDENCE</span>{uniqueIds(action.evidence_ids).length ? uniqueIds(action.evidence_ids).map((id) => <EvidenceChip key={id} id={id} onOpen={setSelectedEvidenceId} />) : <span className="no-evidence">none cited</span>}</div></article>)}</div>
+                  </section>
+                  <section className="plan-section"><div className="section-label"><span>COMMS DRAFTS</span><strong>{selectedPlan.comms.length}</strong></div>
+                    {selectedPlan.comms.length > 0 && <><div className="comms-controls"><div className="subtabs">{commsChannels.filter((channel) => selectedPlan.comms.some((item) => item.channel === channel)).map((channel) => <button type="button" className={commsChannel === channel ? "subtab-active" : ""} key={channel} onClick={() => setCommsChannel(channel)}>{channel.toUpperCase()}</button>)}</div><div className="language-toggle"><button type="button" className={commsLanguage === "en" ? "language-active" : ""} onClick={() => setCommsLanguage("en")}>EN</button><button type="button" className={commsLanguage === "hi" ? "language-active" : ""} onClick={() => setCommsLanguage("hi")}>HI</button></div></div><div className="comms-copy"><p lang={commsLanguage}>{displayedComms}</p><div className="comms-meta"><span>{displayedComms.length} / 160 CHARS</span>{selectedComms?.needs_language_review && <span className="review-notice">LANGUAGE REVIEW</span>}</div></div><div className="evidence-row comms-evidence"><span className="micro-label">CITES</span>{uniqueIds(selectedComms?.evidence_ids ?? []).map((id) => <EvidenceChip key={id} id={id} onOpen={setSelectedEvidenceId} />)}</div></>}
+                  </section>
+                  <section className="plan-section auditor-section"><div className="section-label"><span>AUDITOR</span><strong>{selectedPlan.auditor_flags.length} FLAGS</strong></div><p className="auditor-verdict">{selectedPlan.auditor_verdict === "pass" ? "Evidence, numeric claims, and resource assignments passed review." : "Review required before human decision."}</p>{selectedPlan.auditor_flags.length > 0 && <ul className="flag-list">{selectedPlan.auditor_flags.map((flag) => <li key={flag}>{flag}</li>)}</ul>}</section>
+                  <section className="decision-section"><div className="section-label"><span>HUMAN DECISION</span><strong>{selectedPlan.status.replaceAll("_", " ").toUpperCase()}</strong></div><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} placeholder="Optional approval note; required for rejection." disabled={busy || !canDecide} /><div className="decision-actions"><button type="button" className="reject-button" disabled={busy || !canDecide} onClick={() => void handleDecision("reject")}>{mutating === "reject" ? "REJECTING…" : "REJECT"}</button><button type="button" className="approve-button" disabled={busy || !canDecide} onClick={() => void handleDecision("approve")}>{mutating === "approve" ? "APPROVING…" : "APPROVE PLAN"}</button></div>{selectedAudit && <div className="audit-result"><span>RECORDED BY {selectedAudit.actor.toUpperCase()} · {formatDate(selectedAudit.decided_at)}</span>{selectedAudit.note && <p>“{selectedAudit.note}”</p>}</div>}</section>
+                </>
+              )}
+            </div>
+          )}
         </aside>
       </div>
 
-      <footer className="honest-footer">
-        <span>AEGIS / DECISION-SUPPORT PROTOTYPE</span>
-        <span>It never sends real alerts or dispatches anything. Approved actions are written to an audit log.</span>
-        <span>LEVEL 0 BUILD</span>
-      </footer>
+      {selectedEvidence && <div className="drawer-backdrop" role="presentation" onClick={() => setSelectedEvidenceId(null)}><aside className="evidence-drawer" role="dialog" aria-modal="true" aria-label={`Evidence ${selectedEvidence.id}`} onClick={(event) => event.stopPropagation()}><div className="drawer-heading"><div><span className="panel-index">EVIDENCE RECORD</span><h2>{selectedEvidence.id}</h2></div><button type="button" className="close-button" onClick={() => setSelectedEvidenceId(null)} aria-label="Close evidence drawer">×</button></div><div className="drawer-meta"><span>{selectedEvidence.tool}</span><time>{formatDate(selectedEvidence.fetched_at)}</time></div><p className="evidence-summary">{selectedEvidence.summary}</p><pre>{JSON.stringify(selectedEvidence.data, null, 2)}</pre></aside></div>}
+
+      <footer className="honest-footer"><span>AEGIS / DECISION-SUPPORT PROTOTYPE</span><span>It never sends real alerts or dispatches anything. Approved actions are written to an audit log.</span><span>LEVEL 1 BUILD</span></footer>
     </main>
   );
 }

@@ -35,11 +35,23 @@ class Evidence(BaseModel):
     fetched_at: datetime
 
 
+class Facility(BaseModel):
+    id: str
+    name: str
+    type: str
+    lat: float
+    lon: float
+    capacity: int = Field(ge=0)
+    capacity_estimated: bool = True
+    distance_km: float | None = Field(default=None, ge=0)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
 class Incident(BaseModel):
     id: str
     event_ids: list[str]
     hazard: Hazard
-    det_score: int
+    det_score: int = Field(ge=1, le=5)
     priority: int = Field(ge=1, le=5)
     exposure_estimate: int | None = None
     rationale: str
@@ -58,6 +70,7 @@ class Comms(BaseModel):
     en: str
     hi: str
     needs_language_review: bool = True
+    evidence_ids: list[str] = Field(default_factory=list)
 
 
 class Plan(BaseModel):
@@ -77,3 +90,23 @@ class TraceStep(BaseModel):
     kind: str
     message: str
     refs: dict[str, Any] = Field(default_factory=dict)
+
+
+class AuditEntry(BaseModel):
+    id: str
+    plan_id: str
+    incident_id: str
+    decision: str
+    note: str | None = None
+    actor: str = "human"
+    decided_at: datetime
+
+
+class DecisionRequest(BaseModel):
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class ModeRequest(BaseModel):
+    mode: str = Field(pattern="^(live|replay)$")
+    scenario: str = "nepal_2015"
+    speed: float = Field(default=30.0, ge=1, le=60)

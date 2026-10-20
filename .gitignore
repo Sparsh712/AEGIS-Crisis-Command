@@ -11,6 +11,7 @@ frontend/out/
 __pycache__/
 *.py[cod]
 *.log
+*.sqlite3
 .pytest_cache/
 .mypy_cache/
 

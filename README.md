@@ -1,6 +1,6 @@
 # AEGIS: Multi-Agent Crisis Command Center
 
-AEGIS is a decision-support prototype for crisis command workflows. This repository currently implements the Level 0 foundation: typed backend contracts, an offline structured-LLM boundary, a streaming TraceStep activity feed, a static-export Next.js App Router frontend, and a reproducible Docker build.
+AEGIS is a decision-support prototype for crisis command workflows. This repository currently implements the offline vertical slice: typed backend contracts, SQLite persistence, five deterministic agents, replay fixtures, evidence-grounded plans, Auditor checks, human approval, a streaming TraceStep activity feed, a static-export Next.js command center, and a reproducible Docker build.
 
 ## Honest framing
 
@@ -8,10 +8,11 @@ AEGIS is not an operational emergency system. It never sends real alerts and nev
 
 ## What is here
 
-- `frontend/` — Next.js 15 App Router, TypeScript, static export, dark operations-room UI.
+- `frontend/` — Next.js 15 App Router, TypeScript, static export, dark operations-room UI with replay selection, incident queue, evidence drawer, bilingual comms, and approval controls.
 - `frontend/lib/sse.ts` — connects to `GET /api/stream` and provides an offline deterministic fallback.
-- `backend/app/` — FastAPI contracts, configuration, pub/sub bus, structured LLM boundary, and SSE ticker.
-- `backend/tests/` — offline backend contract and SSE tests.
+- `backend/app/` — FastAPI contracts, SQLite store, pub/sub bus, replay engine, offline tools, five agents, resource ledger, Auditor, orchestration, and SSE API.
+- `backend/fixtures/` — Nepal 2015 and labelled synthetic compound-disaster scenarios; Replay mode never needs the network.
+- `backend/tests/` — offline contract, agent, replay, API, evidence, and ledger tests.
 - `server.py` — FastAPI host for the exported site and a fake TraceStep SSE ticker used by the Docker image.
 - `Dockerfile` — multi-stage Node export build followed by a Python FastAPI runtime.
 - `Makefile` — portable install, test, build, dev, API, and Docker commands.
@@ -57,7 +58,7 @@ Then:
 make dev
 ```
 
-Open `http://localhost:3000`. The frontend connects to the FastAPI SSE stream using `NEXT_PUBLIC_API_BASE`. If the API is unavailable, it shows a clearly local replay stream so the Level 0 screen remains inspectable.
+Open `http://localhost:3000`. The frontend connects to the FastAPI state and SSE endpoints using `NEXT_PUBLIC_API_BASE`. Use `NEPAL 2015` or `SYNTHETIC` to start a replay, select an incident, inspect evidence, and approve or reject the generated plan.
 
 To inspect the stream directly:
 
@@ -85,6 +86,12 @@ docker run --rm -p 8000:8000 aegis:local
 
 The repository contains no machine-specific absolute paths or committed secrets. Copy `.env.example` to `.env` and provide provider credentials only for a future live LLM integration.
 
-## Next level
+## Current limitations
 
-Level 1 will add the backend vertical slice, in-memory state, the human approval endpoints, and the first end-to-end Nepal fixture flow. See `PROGRESS.md` and `DECISIONS.md` for the current boundary and recorded choices.
+- Live mode is an explicit offline-safe placeholder and does not contact USGS, GDACS, Open-Meteo, or Overpass.
+- Facility and population data are recorded fixture data, not a current operational map.
+- Map rendering is a deterministic operations canvas; MapLibre layers and deployment are later hardening work.
+- Hindi drafts are machine-generated and always flagged for human language review.
+- AEGIS never sends real alerts or dispatches resources.
+
+See `PROGRESS.md` and `DECISIONS.md` for the current build boundary and recorded choices.

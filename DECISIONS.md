@@ -5,3 +5,5 @@
 - Root `server.py` hosts `frontend/out` with FastAPI for the Docker image; `backend/app` owns the Level 0 typed contracts and backend SSE implementation.
 - The Docker image uses Node 22.14.0 for the export build and Python 3.11.11 for the FastAPI runtime.
 - The Level 0 stream is a fixture ticker and does not represent live emergency data or dispatch capability.
+- Replay mode is the default and clears the SQLite-backed in-process state before each scenario so demos are repeatable.
+- The two supplied scenarios use deterministic local fixtures; Live mode currently announces its offline-safe status instead of making network calls.

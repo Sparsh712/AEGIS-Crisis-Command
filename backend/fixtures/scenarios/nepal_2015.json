@@ -1,0 +1,82 @@
+{
+  "name": "nepal_2015",
+  "label": "Nepal 2015",
+  "synthetic": false,
+  "description": "USGS-derived Nepal earthquake replay with a compressed demo clock.",
+  "events": [
+    {
+      "id": "usgs:2015-nepal-mainshock",
+      "source": "usgs",
+      "hazard": "earthquake",
+      "lat": 28.1473,
+      "lon": 84.708,
+      "magnitude": 7.8,
+      "alert_level": "red",
+      "occurred_at": "2015-04-25T06:11:25Z",
+      "raw": {
+        "pager_alert": "red",
+        "tsunami": 0,
+        "region": "Gorkha, Nepal",
+        "depth_km": 15.0
+      },
+      "synthetic": false,
+      "replay_after_seconds": 0
+    },
+    {
+      "id": "usgs:2015-nepal-aftershock",
+      "source": "usgs",
+      "hazard": "earthquake",
+      "lat": 27.835,
+      "lon": 86.077,
+      "magnitude": 7.3,
+      "alert_level": "orange",
+      "occurred_at": "2015-05-12T07:05:19Z",
+      "raw": {
+        "pager_alert": "orange",
+        "tsunami": 0,
+        "region": "Dolakha, Nepal",
+        "depth_km": 15.0
+      },
+      "synthetic": false,
+      "replay_after_seconds": 4
+    }
+  ],
+  "overpass": {
+    "elements": [
+      {
+        "type": "node",
+        "id": 1001,
+        "lat": 28.0,
+        "lon": 84.633,
+        "tags": {
+          "amenity": "hospital",
+          "name": "Gorkha District Hospital",
+          "beds": "100"
+        }
+      },
+      {
+        "type": "way",
+        "id": 1002,
+        "center": {
+          "lat": 28.0005,
+          "lon": 84.63
+        },
+        "tags": {
+          "amenity": "clinic",
+          "name": "Gorkha Community Clinic"
+        }
+      },
+      {
+        "type": "node",
+        "id": 2001,
+        "lat": 28.01,
+        "lon": 84.64,
+        "tags": {
+          "place": "town",
+          "name": "Gorkha",
+          "population": "620000"
+        }
+      }
+    ]
+  }
+}

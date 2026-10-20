@@ -1,0 +1,102 @@
+{
+  "name": "compound_synthetic",
+  "label": "Compound synthetic disaster",
+  "synthetic": true,
+  "description": "Synthetic earthquake and flood alerts sharing a dominant regional hospital.",
+  "events": [
+    {
+      "id": "synthetic:compound-earthquake",
+      "source": "synthetic",
+      "hazard": "earthquake",
+      "lat": 27.7172,
+      "lon": 85.324,
+      "magnitude": 6.8,
+      "alert_level": "orange",
+      "occurred_at": "2020-01-01T00:00:00Z",
+      "raw": {
+        "region": "Kathmandu, Nepal",
+        "tsunami": 0,
+        "exposure_estimate": 450000
+      },
+      "synthetic": true,
+      "replay_after_seconds": 0
+    },
+    {
+      "id": "synthetic:compound-flood",
+      "source": "synthetic",
+      "hazard": "flood",
+      "lat": 27.976,
+      "lon": 85.324,
+      "magnitude": null,
+      "alert_level": "yellow",
+      "occurred_at": "2020-01-01T00:00:30Z",
+      "raw": {
+        "region": "Nuwakot, Nepal",
+        "river_discharge": 1250,
+        "exposure_estimate": 180000
+      },
+      "synthetic": true,
+      "replay_after_seconds": 3
+    }
+  ],
+  "overpass": {
+    "elements": [
+      {
+        "type": "node",
+        "id": 3001,
+        "lat": 27.845,
+        "lon": 85.324,
+        "tags": {
+          "amenity": "hospital",
+          "name": "Central Valley General Hospital",
+          "beds": "250"
+        }
+      },
+      {
+        "type": "node",
+        "id": 3002,
+        "lat": 27.62,
+        "lon": 85.5,
+        "tags": {
+          "amenity": "hospital",
+          "name": "South Valley Community Hospital"
+        }
+      },
+      {
+        "type": "way",
+        "id": 3003,
+        "center": {
+          "lat": 27.82,
+          "lon": 85.29
+        },
+        "tags": {
+          "amenity": "shelter",
+          "name": "Valley Relief Shelter",
+          "capacity": "400"
+        }
+      },
+      {
+        "type": "node",
+        "id": 4001,
+        "lat": 27.72,
+        "lon": 85.31,
+        "tags": {
+          "place": "city",
+          "name": "Kathmandu",
+          "population": "1000000"
+        }
+      },
+      {
+        "type": "node",
+        "id": 4002,
+        "lat": 27.97,
+        "lon": 85.33,
+        "tags": {
+          "place": "town",
+          "name": "Nuwakot",
+          "population": "50000"
+        }
+      }
+    ]
+  }
+}
