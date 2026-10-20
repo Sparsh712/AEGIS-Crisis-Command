@@ -60,6 +60,7 @@ The backend owns typed contracts, replay orchestration, evidence, the resource l
 - Node.js `22.14.0` (see `.nvmrc`).
 - Python `3.11.11` for the container/runtime (see `.python-version`).
 - Docker is optional for the local Node/Python workflow.
+- Local Make targets expect `python3.11` and Node `22.14.0`; use pyenv/nvm or the pinned Docker runtimes if your system defaults differ.
 
 ## Setup and checks
 
@@ -71,7 +72,7 @@ make install
 make test
 ```
 
-`make install` creates the project-local Python virtual environment, installs the pinned backend dependencies from `backend/requirements.lock`, and installs the exact frontend dependencies from `frontend/package-lock.json`. `make test` runs the offline backend pytest suite, the frontend TypeScript check, and the static export build. It does not contact external services. Live polling is opt-in with `AEGIS_LIVE_ENABLED=1` and is never required for Replay mode.
+`make install` creates the project-local Python virtual environment, installs the pinned backend dependencies from `backend/requirements.lock`, and installs the exact frontend dependencies from `frontend/package-lock.json`. `make test` verifies the pinned runtimes and bootstraps a missing project-local environment before running the offline backend pytest suite, frontend TypeScript check, and static export build. Once dependencies are installed, the checks do not contact external services. Live polling is opt-in with `AEGIS_LIVE_ENABLED=1` and is never required for Replay mode.
 
 ## Run locally
 

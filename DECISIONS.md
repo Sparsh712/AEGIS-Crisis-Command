@@ -13,3 +13,4 @@
 - Keyboard support uses native buttons, selects, textareas, visible `:focus-visible` outlines, and small shortcuts (`R`, `S`, `A`, `1`, `2`, `Esc`) documented in the UI and README.
 - Submission claims are limited to the checked offline fixture slice; live feeds, hosted deployment, external dispatch, and certified translation are explicitly documented as limitations.
 - A single-container deployment is the default production shape for this prototype because the exported frontend and FastAPI API share one origin and avoid CORS drift; `render.yaml` remains replay-first and keyless.
+- `make test` has an environment preflight: it validates Python 3.11 and Node 22.14.0, repairs a missing/incomplete local environment, then runs the actual checks instead of failing with an opaque missing-venv error.
